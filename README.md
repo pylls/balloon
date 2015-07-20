@@ -1,4 +1,4 @@
-# Balloon [![GoDoc](https://godoc.org/github.com/pylls/balloon?status.png)](https://godoc.org/github.com/pylls/balloon)
+# Balloon [![Build Status](https://travis-ci.org/pylls/balloon.svg?branch=master)](https://travis-ci.org/pylls/balloon) [![GoDoc](https://godoc.org/github.com/pylls/balloon?status.png)](https://godoc.org/github.com/pylls/balloon)
 A forward-secure append-only persistent authenticated data structure.
 This is a proof-of-concept implementation, please do not use for anything serious.
 
