@@ -145,7 +145,7 @@ func Setup(events []Event, sk, vk []byte) (balloon *Balloon, snap *Snapshot, err
 			// add the hash of the entire event to the history tree
 			_, err = balloon.history.Add(util.Hash(append(events[i].Key, events[i].Value...)))
 			if err != nil {
-				return
+				return nil, nil, err
 			}
 
 			// add to the treap the hash of the key pointing to the index (version) of the
@@ -153,8 +153,11 @@ func Setup(events []Event, sk, vk []byte) (balloon *Balloon, snap *Snapshot, err
 			balloon.treap, err = balloon.treap.Add(util.Hash(events[i].Key),
 				util.Itob(balloon.history.LatestVersion()))
 			if err != nil {
-				return
+				return nil, nil, err
 			}
+
+			// store event
+			balloon.events = balloon.events.Set(strconv.Itoa(balloon.history.LatestVersion()), events[i])
 		}
 	}
 
