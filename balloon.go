@@ -38,6 +38,7 @@ type Snapshot struct {
 	Roots     Roots
 	Signature []byte
 	Index     int
+	Previous  []byte
 }
 
 // QueryProof is a proof of a membership query.
@@ -167,9 +168,10 @@ func Setup(events []Event, sk, vk []byte) (balloon *Balloon, snap *Snapshot, err
 	snap.Roots.History = balloon.history.Root()
 	snap.Roots.Treap = balloon.treap.Root()
 	snap.Roots.Version = balloon.history.LatestVersion()
+	snap.Previous = nil
 
 	signature, err := util.Sign(balloon.sk,
-		append(append([]byte("snapshot"), snap.Roots.History...), snap.Roots.Treap...))
+		append(append([]byte("snapshot"), snap.Roots.History...), append(snap.Roots.Treap, snap.Previous...)...))
 	if err != nil {
 		panic(err)
 	}
@@ -221,8 +223,10 @@ func (balloon *Balloon) Update(events []Event, current *Snapshot,
 	next.Roots.History = ht.Root()
 	next.Roots.Treap = treap.Root()
 	next.Roots.Version = ht.LatestVersion()
+	next.Previous = current.Signature
+
 	signature, err := util.Sign(balloon.sk,
-		append(append([]byte("snapshot"), next.Roots.History...), next.Roots.Treap...))
+		append(append([]byte("snapshot"), next.Roots.History...), append(next.Roots.Treap, next.Previous...)...))
 	if err != nil {
 		panic(err)
 	}
@@ -256,7 +260,8 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 			return errors.New("provided snapshot is not current")
 		}
 		if !util.Verify(vk,
-			append(append([]byte("snapshot"), current.Roots.History...), current.Roots.Treap...),
+			append(append([]byte("snapshot"), current.Roots.History...),
+				append(current.Roots.Treap, current.Previous...)...),
 			current.Signature) {
 			return errors.New("invalid signature in current snapshot")
 		}
@@ -288,10 +293,16 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 		}
 	}
 
+	var prev []byte
+	if current != nil {
+		prev = current.Signature
+	}
+
 	// compare snapshot with next snapshot
 	if !util.Equal(ht.Root(), next.Roots.History) ||
 		!util.Equal(treap.Root(), next.Roots.Treap) ||
-		ht.LatestVersion() != next.Roots.Version {
+		ht.LatestVersion() != next.Roots.Version ||
+		!util.Equal(prev, next.Previous) {
 		return errors.New("roots or version mismatch")
 	}
 
@@ -304,7 +315,7 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 	}
 
 	if !util.Verify(vk,
-		append(append([]byte("snapshot"), next.Roots.History...), next.Roots.Treap...),
+		append(append([]byte("snapshot"), next.Roots.History...), append(next.Roots.Treap, next.Previous...)...),
 		next.Signature) {
 		return errors.New("invalid signature")
 	}
@@ -329,7 +340,8 @@ func (balloon *Balloon) QueryMembership(key []byte, queried *Snapshot,
 
 	// verify the queried snapshot
 	if !util.Verify(vk,
-		append(append([]byte("snapshot"), queried.Roots.History...), queried.Roots.Treap...),
+		append(append([]byte("snapshot"), queried.Roots.History...),
+			append(queried.Roots.Treap, queried.Previous...)...),
 		queried.Signature) {
 		return answer, nil, proof, errors.New("invalid signature")
 	}
@@ -381,12 +393,14 @@ func (proof *QueryProof) Verify(key []byte, queried, current *Snapshot,
 
 	// verify the snapshots
 	if !util.Verify(vk,
-		append(append([]byte("snapshot"), queried.Roots.History...), queried.Roots.Treap...),
+		append(append([]byte("snapshot"), queried.Roots.History...),
+			append(queried.Roots.Treap, queried.Previous...)...),
 		queried.Signature) {
 		return false
 	}
 	if !util.Verify(vk,
-		append(append([]byte("snapshot"), current.Roots.History...), current.Roots.Treap...),
+		append(append([]byte("snapshot"), current.Roots.History...),
+			append(current.Roots.Treap, current.Previous...)...),
 		current.Signature) {
 		return false
 	}
@@ -470,7 +484,8 @@ func (proof *PruneProof) Verify(events []Event, answer bool, current *Snapshot,
 	valid = true
 
 	if !util.Verify(vk,
-		append(append([]byte("snapshot"), current.Roots.History...), current.Roots.Treap...),
+		append(append([]byte("snapshot"), current.Roots.History...),
+			append(current.Roots.Treap, current.Previous...)...),
 		current.Signature) {
 		return false
 	}
@@ -534,8 +549,10 @@ func (proof *PruneProof) Update(events []Event, current *Snapshot,
 	next.Roots.History = c
 	next.Roots.Treap = root
 	next.Roots.Version = version
+	next.Previous = current.Signature
 	signature, err := util.Sign(sk,
-		append(append([]byte("snapshot"), next.Roots.History...), next.Roots.Treap...))
+		append(append([]byte("snapshot"), next.Roots.History...),
+			append(next.Roots.Treap, next.Previous...)...))
 	if err != nil {
 		panic(err)
 	}
