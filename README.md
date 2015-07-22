@@ -5,7 +5,12 @@ This is a proof-of-concept implementation, please do not use for anything seriou
 ### Design
 Balloon is composed of a history tree (like Certificate Transparency) and a
 hash treap (think authenticated index).
-Please read [the paper](https://eprint.iacr.org/2015/007) for details.
+Please read [the paper](https://eprint.iacr.org/2015/007) for details. To run
+the benchmarks from the paper to reproduce part of our results, build and run the
+*bench* binary. Note that this implementation, as compared to the one used for
+the paper, performs and uses full path copying on updates. This path copying
+is a practical benefit to recover from errors and perform tests, but has a negative
+impact on prune and verify queries.
 
 ### License
 Apache 2.0. The hash treap implementation is based on the treap implementation
