@@ -311,7 +311,7 @@ func TestBalloonDetails(t *testing.T) {
 	// flip every byte in the signature of the snapshot
 	for i := range s0.Signature {
 		s0.Signature[i] ^= 0x40
-		_, _, _, err = author.QueryMembership([]byte("too short key"), s0, vk)
+		_, _, _, err = author.QueryMembership(util.Hash([]byte("a valid key")), s0, vk)
 		if err == nil {
 			t.Fatalf("membership query for invalid signature: %s", err)
 		}
@@ -402,6 +402,18 @@ func TestMembershipQueryProofFlip(t *testing.T) {
 			t.Fatal("verified an invalid proof and/or argument")
 		}
 		s1.Signature[i] ^= 0x40
+	}
+
+	// flip every byte in the previous signature of the snapshot
+	for i := range s1.Previous {
+		s1.Previous[i] ^= 0x40
+		if proof.Verify(events[0].Key, s1, s1, answer, event, vk) {
+			t.Fatal("verified an invalid proof and/or argument")
+		}
+		if proof.Verify(events[0].Key, s0, s1, answer, event, vk) {
+			t.Fatal("verified an invalid proof and/or argument")
+		}
+		s1.Previous[i] ^= 0x40
 	}
 
 	// change the version of the snapshot
@@ -626,6 +638,15 @@ func TestPruneQueryProofFlip(t *testing.T) {
 		s1.Signature[i] ^= 0x40
 	}
 
+	// flip every byte in the previous signature of the snapshot
+	for i := range s1.Previous {
+		s1.Previous[i] ^= 0x40
+		if proof.Verify(events, answer, s1, vk) {
+			t.Fatal("verified an invalid proof and/or argument")
+		}
+		s1.Previous[i] ^= 0x40
+	}
+
 	// change the version of the snapshot
 	s1.Roots.Version++
 	if proof.Verify(events, answer, s1, vk) {
@@ -817,6 +838,13 @@ func TestRefreshVerifyFlip(t *testing.T) {
 			t.Fatal("verified an invalid proof and/or argument")
 		}
 		s1.Signature[i] ^= 0x40
+	}
+	for i := range s1.Previous {
+		s1.Previous[i] ^= 0x40
+		if clone.RefreshVerify(events, s0, s1, vk) {
+			t.Fatal("verified an invalid proof and/or argument")
+		}
+		s1.Previous[i] ^= 0x40
 	}
 
 	// flip verification key
