@@ -572,9 +572,5 @@ func (balloon *Balloon) RefreshVerify(events []Event, current, next *Snapshot,
 	// the Balloon paper. We made this change because in practise the server (running
 	// the Refresh algorithm) will always want to verify the snapshots provided by
 	// the author and that they are consistent with the provided events.
-	err := balloon.Refresh(events, current, next, vk)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	return err == nil
+	return balloon.Refresh(events, current, next, vk) == nil
 }
