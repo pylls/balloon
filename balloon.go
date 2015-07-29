@@ -11,9 +11,7 @@ import (
 	"bytes"
 	"errors"
 	"sort"
-	"strconv"
 
-	"github.com/mndrix/ps"
 	"github.com/pylls/balloon/hashtreap"
 	"github.com/pylls/balloon/historytree"
 	"github.com/pylls/balloon/util"
@@ -23,7 +21,7 @@ import (
 type Balloon struct {
 	treap          *hashtreap.HashTreap
 	history        *historytree.Tree
-	events         ps.Map
+	events         EventStorage
 	sk, vk         []byte
 	latestsnapshot Snapshot
 }
@@ -39,6 +37,18 @@ type Snapshot struct {
 	Signature []byte
 	Index     int
 	Previous  []byte
+}
+
+// EventStorage specifies the interface for how to store and lookup events.
+// The object implementing this interface MUST be immutable as far as Balloon
+// is concerned.
+type EventStorage interface {
+	// Store stores a set of events and the generated snapshot as a result of
+	// storing the events in Balloon. Returns the updated EventStorage.
+	Store(events map[int]Event, snap Snapshot) (next EventStorage, err error)
+	// LookupEvent returns the event, if it exists, with the provided version
+	// (the version corresponds to the version in the history tree).
+	LookupEvent(version int) (event *Event, err error)
 }
 
 // QueryProof is a proof of a membership query.
@@ -74,11 +84,11 @@ func (a ByKey) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return bytes.Compare(a[i].Key, a[j].Key) == -1 }
 
 // NewBalloon returns a new balloon.
-func NewBalloon() (balloon *Balloon) {
+func NewBalloon(storage EventStorage) (balloon *Balloon) {
 	balloon = new(Balloon)
 	balloon.treap = hashtreap.NewHashTreap()
 	balloon.history = historytree.NewTree()
-	balloon.events = ps.NewMap()
+	balloon.events = storage
 	return
 }
 
@@ -132,12 +142,13 @@ func Genkey() (sk, vk []byte, err error) {
 
 // Setup creates a new balloon based on the slice of events (may be empty or nil). Returns the
 // first snapshot. Run by the author on trusted input.
-func Setup(events []Event, sk, vk []byte) (balloon *Balloon, snap *Snapshot, err error) {
-	balloon = NewBalloon()
+func Setup(events []Event, sk, vk []byte, storage EventStorage) (balloon *Balloon, snap *Snapshot, err error) {
+	balloon = NewBalloon(storage)
 	balloon.sk = sk
 	balloon.vk = vk
 
 	// do same as update, allow events to be empty
+	eventBuffer := make(map[int]Event)
 	if len(events) > 0 {
 		sort.Sort(ByKey(events))
 
@@ -157,8 +168,8 @@ func Setup(events []Event, sk, vk []byte) (balloon *Balloon, snap *Snapshot, err
 				return nil, nil, err
 			}
 
-			// store event
-			balloon.events = balloon.events.Set(strconv.Itoa(balloon.history.LatestVersion()), events[i])
+			// store event in temporary buffer
+			eventBuffer[balloon.history.LatestVersion()] = events[i]
 		}
 	}
 
@@ -176,6 +187,13 @@ func Setup(events []Event, sk, vk []byte) (balloon *Balloon, snap *Snapshot, err
 		panic(err)
 	}
 	snap.Signature = signature
+
+	// actually store events
+	store, err := balloon.events.Store(eventBuffer, *snap)
+	if err != nil {
+		return nil, nil, err
+	}
+	balloon.events = store
 	balloon.latestsnapshot = *snap
 
 	return
@@ -213,7 +231,7 @@ func (balloon *Balloon) Update(events []Event, current *Snapshot,
 			return
 		}
 
-		// store the actual event
+		// store the actual event in a buffer
 		eventBuffer[ht.LatestVersion()] = events[i]
 	}
 
@@ -224,18 +242,19 @@ func (balloon *Balloon) Update(events []Event, current *Snapshot,
 	next.Roots.Treap = treap.Root()
 	next.Roots.Version = ht.LatestVersion()
 	next.Previous = current.Signature
-
 	signature, err := util.Sign(balloon.sk,
 		append(append([]byte("snapshot"), next.Roots.History...), append(next.Roots.Treap, next.Previous...)...))
 	if err != nil {
 		panic(err)
 	}
+	next.Signature = signature
 
 	// all is OK, save result
-	for index, event := range eventBuffer {
-		balloon.events = balloon.events.Set(strconv.Itoa(index), event)
+	store, err := balloon.events.Store(eventBuffer, *next)
+	if err != nil {
+		return nil, err
 	}
-	next.Signature = signature
+	balloon.events = store
 	balloon.latestsnapshot = *next
 	balloon.treap = treap
 	balloon.history = ht
@@ -321,9 +340,11 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 	}
 
 	// all is OK, store results
-	for index, event := range eventBuffer {
-		balloon.events = balloon.events.Set(strconv.Itoa(index), event)
+	store, err := balloon.events.Store(eventBuffer, *next)
+	if err != nil {
+		return err
 	}
+	balloon.events = store
 	balloon.latestsnapshot = *next
 	balloon.treap = treap
 	balloon.history = ht
@@ -374,15 +395,12 @@ func (balloon *Balloon) QueryMembership(key []byte, queried *Snapshot,
 	}
 
 	// get the event from storage
-	e, exists := balloon.events.Lookup(strconv.Itoa(index))
-	if !exists {
-		panic("no such event in balloon, this should never happen")
+	e, err := balloon.events.LookupEvent(index)
+	if err != nil {
+		return
 	}
 
-	var result Event
-	result.Key = (e.(Event)).Key
-	result.Value = (e.(Event)).Value
-	return true, &result, proof, nil
+	return true, e, proof, nil
 }
 
 // Verify verifies a proof and answer from QueryMembership. Returns true if the
@@ -455,19 +473,19 @@ func (balloon *Balloon) QueryPrune(events []Event, vk []byte,
 	// we only need/can extract the latest event, whose membership query fixes the history
 	// tree, if there is at least one event in the Balloon
 	if balloon.Size() > 0 {
-		event, exists := balloon.events.Lookup(strconv.Itoa(balloon.events.Size() - 1))
-		if !exists {
-			panic("event not found in storage")
+		event, err := balloon.events.LookupEvent(balloon.Size() - 1)
+		if err != nil {
+			panic(err)
 		}
 
-		members, qevent, qproof, err := balloon.QueryMembership(event.(Event).Key, &balloon.latestsnapshot, vk)
+		members, qevent, qproof, err := balloon.QueryMembership(event.Key, &balloon.latestsnapshot, vk)
 		if err != nil {
 			panic(err)
 		}
 		if !members {
 			panic("an event that should be a member is not")
 		}
-		if !util.Equal(event.(Event).Key, qevent.Key) || !util.Equal(event.(Event).Value, qevent.Value) {
+		if !util.Equal(event.Key, qevent.Key) || !util.Equal(event.Value, qevent.Value) {
 			panic("events differ")
 		}
 		proof.QueryProof = qproof

@@ -2,10 +2,50 @@ package balloon
 
 import (
 	"crypto/rand"
+	"errors"
+	"strconv"
 	"testing"
 
+	"github.com/mndrix/ps"
 	"github.com/pylls/balloon/util"
 )
+
+type TestEventStorage struct {
+	events    ps.Map
+	snapshots ps.Map
+}
+
+func NewTestEventStorage() TestEventStorage {
+	var storage TestEventStorage
+	storage.events = ps.NewMap()
+	storage.snapshots = ps.NewMap()
+	return storage
+}
+
+func (storage TestEventStorage) Store(events map[int]Event,
+	snap Snapshot) (next EventStorage, err error) {
+	e := storage.events
+	s := storage.snapshots
+	for version, event := range events {
+		e = e.Set(strconv.Itoa(version), event)
+	}
+	s = s.Set(strconv.Itoa(snap.Index), snap)
+
+	return TestEventStorage{events: e, snapshots: s}, nil
+}
+
+func (storage TestEventStorage) LookupEvent(version int) (event *Event,
+	err error) {
+	e, exists := storage.events.Lookup(strconv.Itoa(version))
+	if !exists {
+		return nil, errors.New("no such event")
+	}
+	var result Event
+	result.Key = (e.(Event)).Key
+	result.Value = (e.(Event)).Value
+
+	return &result, nil
+}
 
 func TestBalloon(t *testing.T) {
 	/*
@@ -18,7 +58,7 @@ func TestBalloon(t *testing.T) {
 	}
 
 	// setup for an initially empty Balloon for the author
-	author, s0, err := Setup(nil, sk, vk)
+	author, s0, err := Setup(nil, sk, vk, NewTestEventStorage())
 	if err != nil {
 		t.Fatalf("failed to setup balloon: %s", err)
 	}
@@ -41,7 +81,7 @@ func TestBalloon(t *testing.T) {
 	}
 
 	// for the server, create an empty balloon
-	server := NewBalloon()
+	server := NewBalloon(NewTestEventStorage())
 
 	// refresh with the initial empty events
 	err = server.Refresh(nil, nil, s0, vk)
@@ -221,7 +261,7 @@ func TestBalloonDetails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate keys: %s", err)
 	}
-	author, s0, err := Setup(nil, sk, vk)
+	author, s0, err := Setup(nil, sk, vk, NewTestEventStorage())
 	if err != nil {
 		t.Fatalf("failed to setup balloon: %s", err)
 	}
@@ -244,7 +284,7 @@ func TestBalloonDetails(t *testing.T) {
 	}
 
 	// create a second balloon, but use Setup directly
-	_, snapSetup, err := Setup(events, sk, vk)
+	_, snapSetup, err := Setup(events, sk, vk, NewTestEventStorage())
 	if err != nil {
 		t.Fatalf("failed to setup balloon: %s", err)
 	}
@@ -255,7 +295,7 @@ func TestBalloonDetails(t *testing.T) {
 	}
 
 	// Refresh
-	server := NewBalloon()
+	server := NewBalloon(NewTestEventStorage())
 	err = server.Refresh(nil, nil, s0, vk)
 	if err != nil {
 		t.Fatalf("failed to do initial refresh: %s", err)
@@ -283,7 +323,7 @@ func TestBalloonDetails(t *testing.T) {
 
 	// Setup
 	events = make([]Event, size)
-	_, _, err = Setup(events, sk, vk)
+	_, _, err = Setup(events, sk, vk, NewTestEventStorage())
 	if err == nil {
 		t.Fatal("successfully Setup with nil event keys and values")
 	}
@@ -329,7 +369,7 @@ func TestMembershipQueryProofFlip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate keys: %s", err)
 	}
-	balloon, s0, err := Setup(nil, sk, vk)
+	balloon, s0, err := Setup(nil, sk, vk, NewTestEventStorage())
 	if err != nil {
 		t.Fatalf("failed to setup balloon: %s", err)
 	}
@@ -563,7 +603,7 @@ func TestPruneQueryProofFlip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate keys: %s", err)
 	}
-	balloon, s0, err := Setup(nil, sk, vk)
+	balloon, s0, err := Setup(nil, sk, vk, NewTestEventStorage())
 	if err != nil {
 		t.Fatalf("failed to setup balloon: %s", err)
 	}
@@ -722,7 +762,7 @@ func TestRefreshVerifyFlip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate keys: %s", err)
 	}
-	balloon, s0, err := Setup(nil, sk, vk)
+	balloon, s0, err := Setup(nil, sk, vk, NewTestEventStorage())
 	if err != nil {
 		t.Fatalf("failed to setup balloon: %s", err)
 	}
@@ -742,7 +782,7 @@ func TestRefreshVerifyFlip(t *testing.T) {
 		t.Fatalf("failed to update to s1: %s", err)
 	}
 
-	server := NewBalloon()
+	server := NewBalloon(NewTestEventStorage())
 	if !server.RefreshVerify(nil, nil, s0, vk) {
 		t.Fatalf("failed to do initial refresh: %s", err)
 	}
@@ -868,7 +908,7 @@ func TestClone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate keys: %s", err)
 	}
-	balloon, s0, err := Setup(nil, sk, vk)
+	balloon, s0, err := Setup(nil, sk, vk, NewTestEventStorage())
 	if err != nil {
 		t.Fatalf("failed to setup balloon: %s", err)
 	}
@@ -907,7 +947,7 @@ func TestEqualSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to generate keys: %s", err)
 	}
-	balloon, s0, err := Setup(nil, sk, vk)
+	balloon, s0, err := Setup(nil, sk, vk, NewTestEventStorage())
 	if err != nil {
 		t.Fatalf("failed to setup balloon: %s", err)
 	}
