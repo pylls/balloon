@@ -40,15 +40,15 @@ type Snapshot struct {
 }
 
 // EventStorage specifies the interface for how to store and lookup events.
-// The object implementing this interface MUST be immutable as far as Balloon
-// is concerned.
 type EventStorage interface {
 	// Store stores a set of events and the generated snapshot as a result of
-	// storing the events in Balloon. Returns the updated EventStorage.
-	Store(events map[int]Event, snap Snapshot) (next EventStorage, err error)
+	// storing the events in Balloon.
+	Store(events map[int]Event, snap Snapshot) (err error)
 	// LookupEvent returns the event, if it exists, with the provided version
 	// (the version corresponds to the version in the history tree).
 	LookupEvent(version int) (event *Event, err error)
+	// Clone creates a copy of the EventStorage.
+	Clone() (clone EventStorage)
 }
 
 // QueryProof is a proof of a membership query.
@@ -97,7 +97,7 @@ func (balloon *Balloon) Clone() (clone *Balloon) {
 	clone = new(Balloon)
 	clone.treap = balloon.treap
 	clone.history = balloon.history.Clone()
-	clone.events = balloon.events
+	clone.events = balloon.events.Clone()
 	clone.latestsnapshot = balloon.latestsnapshot
 	clone.sk = balloon.sk
 	clone.vk = balloon.vk
@@ -189,11 +189,10 @@ func Setup(events []Event, sk, vk []byte, storage EventStorage) (balloon *Balloo
 	snap.Signature = signature
 
 	// actually store events
-	store, err := balloon.events.Store(eventBuffer, *snap)
+	err = balloon.events.Store(eventBuffer, *snap)
 	if err != nil {
 		return nil, nil, err
 	}
-	balloon.events = store
 	balloon.latestsnapshot = *snap
 
 	return
@@ -250,11 +249,10 @@ func (balloon *Balloon) Update(events []Event, current *Snapshot,
 	next.Signature = signature
 
 	// all is OK, save result
-	store, err := balloon.events.Store(eventBuffer, *next)
+	err = balloon.events.Store(eventBuffer, *next)
 	if err != nil {
 		return nil, err
 	}
-	balloon.events = store
 	balloon.latestsnapshot = *next
 	balloon.treap = treap
 	balloon.history = ht
@@ -340,11 +338,10 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 	}
 
 	// all is OK, store results
-	store, err := balloon.events.Store(eventBuffer, *next)
+	err = balloon.events.Store(eventBuffer, *next)
 	if err != nil {
 		return err
 	}
-	balloon.events = store
 	balloon.latestsnapshot = *next
 	balloon.treap = treap
 	balloon.history = ht

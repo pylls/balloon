@@ -15,26 +15,24 @@ type TestEventStorage struct {
 	snapshots ps.Map
 }
 
-func NewTestEventStorage() TestEventStorage {
-	var storage TestEventStorage
+func NewTestEventStorage() (storage *TestEventStorage) {
+	storage = new(TestEventStorage)
 	storage.events = ps.NewMap()
 	storage.snapshots = ps.NewMap()
-	return storage
+	return
 }
 
-func (storage TestEventStorage) Store(events map[int]Event,
-	snap Snapshot) (next EventStorage, err error) {
-	e := storage.events
-	s := storage.snapshots
+func (storage *TestEventStorage) Store(events map[int]Event,
+	snap Snapshot) (err error) {
 	for version, event := range events {
-		e = e.Set(strconv.Itoa(version), event)
+		storage.events = storage.events.Set(strconv.Itoa(version), event)
 	}
-	s = s.Set(strconv.Itoa(snap.Index), snap)
+	storage.snapshots = storage.snapshots.Set(strconv.Itoa(snap.Index), snap)
 
-	return TestEventStorage{events: e, snapshots: s}, nil
+	return nil
 }
 
-func (storage TestEventStorage) LookupEvent(version int) (event *Event,
+func (storage *TestEventStorage) LookupEvent(version int) (event *Event,
 	err error) {
 	e, exists := storage.events.Lookup(strconv.Itoa(version))
 	if !exists {
@@ -45,6 +43,13 @@ func (storage TestEventStorage) LookupEvent(version int) (event *Event,
 	result.Value = (e.(Event)).Value
 
 	return &result, nil
+}
+
+func (storage *TestEventStorage) Clone() EventStorage {
+	clone := new(TestEventStorage)
+	clone.events = storage.events
+	clone.snapshots = storage.snapshots
+	return clone
 }
 
 func TestBalloon(t *testing.T) {
