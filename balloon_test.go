@@ -3,7 +3,6 @@ package balloon
 import (
 	"crypto/rand"
 	"errors"
-	"strconv"
 	"testing"
 
 	"github.com/mndrix/ps"
@@ -11,30 +10,27 @@ import (
 )
 
 type TestEventStorage struct {
-	events    ps.Map
-	snapshots ps.Map
+	events ps.Map
 }
 
 func NewTestEventStorage() (storage *TestEventStorage) {
 	storage = new(TestEventStorage)
 	storage.events = ps.NewMap()
-	storage.snapshots = ps.NewMap()
 	return
 }
 
-func (storage *TestEventStorage) Store(events map[int]Event,
+func (storage *TestEventStorage) Store(events []Event,
 	snap Snapshot) (err error) {
-	for version, event := range events {
-		storage.events = storage.events.Set(strconv.Itoa(version), event)
+	for _, event := range events {
+		storage.events = storage.events.Set(string(event.Key), event)
 	}
-	storage.snapshots = storage.snapshots.Set(strconv.Itoa(snap.Index), snap)
 
 	return nil
 }
 
-func (storage *TestEventStorage) LookupEvent(version int) (event *Event,
+func (storage *TestEventStorage) LookupEvent(key []byte) (event *Event,
 	err error) {
-	e, exists := storage.events.Lookup(strconv.Itoa(version))
+	e, exists := storage.events.Lookup(string(key))
 	if !exists {
 		return nil, errors.New("no such event")
 	}
@@ -48,7 +44,6 @@ func (storage *TestEventStorage) LookupEvent(version int) (event *Event,
 func (storage *TestEventStorage) Clone() EventStorage {
 	clone := new(TestEventStorage)
 	clone.events = storage.events
-	clone.snapshots = storage.snapshots
 	return clone
 }
 

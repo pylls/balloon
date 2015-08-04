@@ -24,6 +24,7 @@ type Balloon struct {
 	events         EventStorage
 	sk, vk         []byte
 	latestsnapshot Snapshot
+	latesteventkey []byte
 }
 
 // Event is an event that gets inserted into a balloon.
@@ -43,10 +44,9 @@ type Snapshot struct {
 type EventStorage interface {
 	// Store stores a set of events and the generated snapshot as a result of
 	// storing the events in Balloon.
-	Store(events map[int]Event, snap Snapshot) (err error)
-	// LookupEvent returns the event, if it exists, with the provided version
-	// (the version corresponds to the version in the history tree).
-	LookupEvent(version int) (event *Event, err error)
+	Store(events []Event, snap Snapshot) (err error)
+	// LookupEvent returns the event, if it exists, with the provided key.
+	LookupEvent(key []byte) (event *Event, err error)
 	// Clone creates a copy of the EventStorage.
 	Clone() (clone EventStorage)
 }
@@ -148,7 +148,6 @@ func Setup(events []Event, sk, vk []byte, storage EventStorage) (balloon *Balloo
 	balloon.vk = vk
 
 	// do same as update, allow events to be empty
-	eventBuffer := make(map[int]Event)
 	if len(events) > 0 {
 		sort.Sort(ByKey(events))
 
@@ -167,9 +166,6 @@ func Setup(events []Event, sk, vk []byte, storage EventStorage) (balloon *Balloo
 			if err != nil {
 				return nil, nil, err
 			}
-
-			// store event in temporary buffer
-			eventBuffer[balloon.history.LatestVersion()] = events[i]
 		}
 	}
 
@@ -189,11 +185,14 @@ func Setup(events []Event, sk, vk []byte, storage EventStorage) (balloon *Balloo
 	snap.Signature = signature
 
 	// actually store events
-	err = balloon.events.Store(eventBuffer, *snap)
+	err = balloon.events.Store(events, *snap)
 	if err != nil {
 		return nil, nil, err
 	}
 	balloon.latestsnapshot = *snap
+	if len(events) > 0 {
+		balloon.latesteventkey = events[len(events)-1].Key
+	}
 
 	return
 }
@@ -215,7 +214,6 @@ func (balloon *Balloon) Update(events []Event, current *Snapshot,
 	// attempt to add events
 	treap := balloon.treap
 	ht := balloon.history.Clone()
-	eventBuffer := make(map[int]Event)
 	for i := 0; i < len(events); i++ {
 		// add the hash of the entire event to the history tree
 		_, err = ht.Add(util.Hash(append(events[i].Key, events[i].Value...)))
@@ -229,9 +227,6 @@ func (balloon *Balloon) Update(events []Event, current *Snapshot,
 		if err != nil {
 			return
 		}
-
-		// store the actual event in a buffer
-		eventBuffer[ht.LatestVersion()] = events[i]
 	}
 
 	// attempt to create next snapshot
@@ -249,11 +244,14 @@ func (balloon *Balloon) Update(events []Event, current *Snapshot,
 	next.Signature = signature
 
 	// all is OK, save result
-	err = balloon.events.Store(eventBuffer, *next)
+	err = balloon.events.Store(events, *next)
 	if err != nil {
 		return nil, err
 	}
 	balloon.latestsnapshot = *next
+	if len(events) > 0 {
+		balloon.latesteventkey = events[len(events)-1].Key
+	}
 	balloon.treap = treap
 	balloon.history = ht
 
@@ -286,7 +284,6 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 
 	treap := balloon.treap
 	ht := balloon.history.Clone()
-	eventBuffer := make(map[int]Event)
 	if len(events) > 0 {
 		sort.Sort(ByKey(events))
 
@@ -304,9 +301,6 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 			if err != nil {
 				return
 			}
-
-			// store the actual event
-			eventBuffer[ht.LatestVersion()] = events[i]
 		}
 	}
 
@@ -338,11 +332,14 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 	}
 
 	// all is OK, store results
-	err = balloon.events.Store(eventBuffer, *next)
+	err = balloon.events.Store(events, *next)
 	if err != nil {
 		return err
 	}
 	balloon.latestsnapshot = *next
+	if len(events) > 0 {
+		balloon.latesteventkey = events[len(events)-1].Key
+	}
 	balloon.treap = treap
 	balloon.history = ht
 
@@ -392,7 +389,7 @@ func (balloon *Balloon) QueryMembership(key []byte, queried *Snapshot,
 	}
 
 	// get the event from storage
-	e, err := balloon.events.LookupEvent(index)
+	e, err := balloon.events.LookupEvent(key)
 	if err != nil {
 		return
 	}
@@ -470,19 +467,15 @@ func (balloon *Balloon) QueryPrune(events []Event, vk []byte,
 	// we only need/can extract the latest event, whose membership query fixes the history
 	// tree, if there is at least one event in the Balloon
 	if balloon.Size() > 0 {
-		event, err := balloon.events.LookupEvent(balloon.Size() - 1)
-		if err != nil {
-			panic(err)
-		}
-
-		members, qevent, qproof, err := balloon.QueryMembership(event.Key, &balloon.latestsnapshot, vk)
+		members, qevent, qproof, err := balloon.QueryMembership(balloon.latesteventkey,
+			&balloon.latestsnapshot, vk)
 		if err != nil {
 			panic(err)
 		}
 		if !members {
 			panic("an event that should be a member is not")
 		}
-		if !util.Equal(event.Key, qevent.Key) || !util.Equal(event.Value, qevent.Value) {
+		if !util.Equal(balloon.latesteventkey, qevent.Key) {
 			panic("events differ")
 		}
 		proof.QueryProof = qproof
