@@ -21,7 +21,7 @@ import (
 type Balloon struct {
 	treap          *hashtreap.HashTreap
 	history        *historytree.Tree
-	events         EventStorage
+	Storage        EventStorage
 	sk, vk         []byte
 	latestsnapshot Snapshot
 	latesteventkey []byte
@@ -88,7 +88,7 @@ func NewBalloon(storage EventStorage) (balloon *Balloon) {
 	balloon = new(Balloon)
 	balloon.treap = hashtreap.NewHashTreap()
 	balloon.history = historytree.NewTree()
-	balloon.events = storage
+	balloon.Storage = storage
 	return
 }
 
@@ -97,7 +97,7 @@ func (balloon *Balloon) Clone() (clone *Balloon) {
 	clone = new(Balloon)
 	clone.treap = balloon.treap
 	clone.history = balloon.history.Clone()
-	clone.events = balloon.events.Clone()
+	clone.Storage = balloon.Storage.Clone()
 	clone.latestsnapshot = balloon.latestsnapshot
 	clone.sk = balloon.sk
 	clone.vk = balloon.vk
@@ -185,7 +185,7 @@ func Setup(events []Event, sk, vk []byte, storage EventStorage) (balloon *Balloo
 	snap.Signature = signature
 
 	// actually store events
-	err = balloon.events.Store(events, *snap)
+	err = balloon.Storage.Store(events, *snap)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -244,7 +244,7 @@ func (balloon *Balloon) Update(events []Event, current *Snapshot,
 	next.Signature = signature
 
 	// all is OK, save result
-	err = balloon.events.Store(events, *next)
+	err = balloon.Storage.Store(events, *next)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 	}
 
 	// all is OK, store results
-	err = balloon.events.Store(events, *next)
+	err = balloon.Storage.Store(events, *next)
 	if err != nil {
 		return err
 	}
@@ -389,7 +389,7 @@ func (balloon *Balloon) QueryMembership(key []byte, queried *Snapshot,
 	}
 
 	// get the event from storage
-	e, err := balloon.events.LookupEvent(key)
+	e, err := balloon.Storage.LookupEvent(key)
 	if err != nil {
 		return
 	}
