@@ -287,13 +287,20 @@ func (p *MembershipProof) Update(events [][]byte) (root []byte, version int, err
 		proofTree.frozen = proofTree.frozen.Set(n.Position.toString(), n.Hash)
 	}
 
-	// set the event we are proving to and the size of the pruned tree
-	// to the size of the actual tree
-	proofTree.events = proofTree.events.Set(strconv.Itoa(p.Index), p.Event)
-	proofTree.size = p.Version + 1
+	// check if we are updating an empty history tree or not
+	var startIndex int
+	if len(p.Event) == 0 {
+		proofTree.size = 0
+		startIndex = 0
+	} else {
+		proofTree.size = p.Version + 1
+		startIndex = p.Index + 1
+		// set the event we are proving to and the size of the pruned tree
+		// to the size of the actual tree
+		proofTree.events = proofTree.events.Set(strconv.Itoa(p.Index), p.Event)
+	}
 
 	// add all events in order of the slice
-	startIndex := p.Index + 1
 	for i := 0; i < len(events); i++ {
 		err = proofTree.setEvent(startIndex+i, events[i])
 		if err != nil {

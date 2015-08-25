@@ -270,9 +270,14 @@ func (balloon *Balloon) Refresh(events []Event, current, next *Snapshot,
 
 	if current != nil {
 		if !util.Equal(current.Roots.History, balloon.history.Root()) ||
-			!util.Equal(current.Roots.Treap, balloon.treap.Root()) ||
-			current.Roots.Version+len(events) != next.Roots.Version {
+			!util.Equal(current.Roots.Treap, balloon.treap.Root()) {
 			return errors.New("provided snapshot is not current")
+		}
+		if current.Roots.Version == -1 && next.Roots.Version != len(events)-1 {
+			return errors.New("unexpected version in next snapshot")
+		}
+		if current.Roots.Version != -1 && current.Roots.Version+len(events) != next.Roots.Version {
+			return errors.New("version in next snapshot inconsistent with current")
 		}
 		if !util.Verify(vk,
 			append(append([]byte("snapshot"), current.Roots.History...),
@@ -514,7 +519,7 @@ func (proof *PruneProof) Verify(events []Event, answer bool, current *Snapshot,
 	}
 
 	// check the query if needed
-	if answer {
+	if answer && current.Roots.Version >= 0 {
 		valid = proof.QueryProof.Verify(proof.Event.Key, current, current, true, &proof.Event, vk)
 	}
 
@@ -531,7 +536,7 @@ func (proof *PruneProof) Update(events []Event, current *Snapshot,
 	sort.Sort(ByKey(events))
 
 	// calculate balloon internal keys and values based on events
-	startIndex := proof.QueryProof.HistoryProof.Index + 1
+	startIndex := current.Roots.Version + 1
 	values := make([][]byte, len(events))
 	treapKeys := make([][]byte, len(events))
 	treapValues := make([][]byte, len(events))
@@ -554,6 +559,7 @@ func (proof *PruneProof) Update(events []Event, current *Snapshot,
 	}
 
 	next = new(Snapshot)
+	next.Index = current.Index + 1
 	next.Roots.History = c
 	next.Roots.Treap = root
 	next.Roots.Version = version

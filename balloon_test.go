@@ -974,3 +974,53 @@ func TestEqualSnapshot(t *testing.T) {
 		t.Fatal("two different snapshots are equal")
 	}
 }
+
+func TestPrune(t *testing.T) {
+	size := 3
+	runs := 4
+	sk, vk, err := Genkey()
+	if err != nil {
+		t.Fatalf("failed to generate keys: %s", err)
+	}
+	_, current, err := Setup(nil, sk, vk, NewTestEventStorage())
+	if err != nil {
+		t.Fatalf("failed to setup balloon: %s", err)
+	}
+
+	server := NewBalloon(NewTestEventStorage())
+	if !server.RefreshVerify(nil, nil, current, vk) {
+		t.Fatal("failed to refresh to s0")
+	}
+
+	for i := 1; i <= runs; i++ {
+		events := make([]Event, size)
+		for j := 0; j < size; j++ {
+			k := make([]byte, util.HashOutputLen)
+			_, err = rand.Read(k)
+			if err != nil {
+				t.Fatalf("failed to read random bytes: %s", err)
+			}
+			events[j].Key = k
+			events[j].Value = util.Hash(k)
+		}
+
+		answer, proof := server.QueryPrune(events, vk, true)
+		if !answer {
+			t.Fatalf("cannot update a prune proof on run %d", i)
+		}
+
+		if !proof.Verify(events, answer, current, vk) {
+			t.Fatalf("failed to verify prune proof on run %d", i)
+		}
+
+		next, err := proof.Update(events, current, sk)
+		if err != nil {
+			t.Fatalf("failed to update on run %d, error %s", i, err)
+		}
+
+		if !server.RefreshVerify(events, current, next, vk) {
+			t.Fatalf("failed to refresh on run %d", i)
+		}
+		current = next
+	}
+}
