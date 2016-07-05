@@ -244,7 +244,7 @@ func TestPruneQuery(t *testing.T) {
 	values := make([][]byte, size)
 	for i := 0; i < size; i++ {
 		keys[i] = make([]byte, util.HashOutputLen)
-		_, err := rand.Read(keys[i])
+		_, err = rand.Read(keys[i])
 		if err != nil {
 			t.Fatalf("failed to read random bytes: %s", err)
 		}

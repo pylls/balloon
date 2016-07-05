@@ -12,7 +12,6 @@ import (
 	"bytes"
 	"errors"
 	"math"
-	"runtime"
 	"sync"
 
 	"github.com/pylls/balloon/util"
@@ -207,16 +206,12 @@ func (t *HashTreap) Update() {
 	if t.root == nil {
 		return
 	}
-	wg := new(sync.WaitGroup)
 	if t.root.left != nil {
-		wg.Add(1)
-		go t.updateWorker(t.root.left, wg)
+		t.update(t.root.left)
 	}
 	if t.root.right != nil {
-		wg.Add(1)
-		go t.updateWorker(t.root.right, wg)
+		t.update(t.root.right)
 	}
-	wg.Wait()
 
 	left := NoNodeHash
 	right := NoNodeHash
@@ -228,11 +223,6 @@ func (t *HashTreap) Update() {
 	}
 	t.root.hash = util.Hash(t.root.key, t.root.value, left, right)
 	t.root.taint = false
-}
-
-func (t *HashTreap) updateWorker(node *node, done *sync.WaitGroup) {
-	t.update(node)
-	done.Done()
 }
 
 func (t *HashTreap) update(node *node) {
@@ -425,33 +415,8 @@ func (t *HashTreap) QueryPrune(keys [][]byte, minimalProof bool) (answer bool, p
 			Hash:  t.root.hash,
 		})
 
-		// the goal below is to do a membership query for all keys in parallel
-		wg := new(sync.WaitGroup)
-		keyChan := make(chan []byte, len(keys))
-		proofChan := make(chan QueryProof, len(keys))
-
-		// one worker per core
-		for i := 0; i < runtime.NumCPU(); i++ {
-			wg.Add(1)
-			go t.pruneWorker(keyChan, proofChan, wg)
-		}
-
-		// send keys to workers
 		for _, k := range keys {
-			keyChan <- k
-		}
-
-		// no more keys to send, stops worker from waiting
-		close(keyChan)
-
-		// wait for the workers to finish
-		wg.Wait()
-
-		// no more proofs to be generated
-		close(proofChan)
-
-		// put together the proof
-		for p := range proofChan {
+			p := t.MembershipQuery(k)
 			// if a proof proves member, return false and replace the proof
 			if p.Value != nil {
 				proof.Nodes = p.Nodes
@@ -474,7 +439,6 @@ func (t *HashTreap) QueryPrune(keys [][]byte, minimalProof bool) (answer bool, p
 			}
 			proof.Nodes = proof.Nodes[:len(unique)]
 		}
-
 	}
 
 	return
